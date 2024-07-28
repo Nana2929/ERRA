@@ -176,18 +176,18 @@ class DataLoader:
         self.initialize(data_path)
         self.word_dict.keep_most_frequent(vocab_size)
         self.__unk = self.word_dict.word2idx['<unk>']
-        # self.feature_set = set()
+        self.feature_set = set()
         self.train, self.valid, self.test = self.load_data(data_path, index_dir)
         # self.user_aspect_top2=torch.load('./user_aspect_top2.pt')
 
     def initialize(self, data_path):
         # assert os.path.exists(data_path)
-        # reviews = pickle.load(open(data_path, 'rb'))
-        reviews=pd.read_json('../data/cells/df.json')
-        for index,review in reviews.iterrows():
-            self.user_dict.add_entity(review['userId'])
-            self.item_dict.add_entity(review['itemId'])
-            tem = review['review']
+        reviews = pickle.load(open(data_path, 'rb'))
+        for review in reviews:
+
+            self.user_dict.add_entity(review['user'])
+            self.item_dict.add_entity(review['item'])
+            tem = review['template'][2]
             self.word_dict.add_sentence(tem)
             # self.word_dict.add_word(fea)
             rating = review['rating']
@@ -197,42 +197,39 @@ class DataLoader:
                 self.min_rating = rating
 
     def load_data(self, data_path, index_dir):
-        # data = []
-        # reviews = pickle.load(open(data_path, 'rb'))
-        # for review in reviews:
-        #     (fea, adj, tem, sco) = review['template']
-        #     data.append({'user': self.user_dict.entity2idx[review['user']],
-        #                  'item': self.item_dict.entity2idx[review['item']],
-        #                  'rating': review['rating'],
-        #                  'text': self.seq2ids(tem),
-        #                  # 'text': tem,
-        #                  'feature': self.word_dict.word2idx.get(fea, self.__unk)
-        #        })
-        #     if fea in self.word_dict.word2idx:
-        #         self.feature_set.add(fea)
-        #     else:
-        #         self.feature_set.add('<unk>')
-        #
-        # train_index, valid_index, test_index = self.load_index(index_dir)
-        # train, valid, test = [], [], []
-        # for idx in train_index:
-        #     train.append(data[idx])
-        # for idx in valid_index:
-        #     valid.append(data[idx])
-        # for idx in test_index:
-        #     test.append(data[idx])
-        train_csv = pd.read_json('../data/cells/train_df.json')
-        valid_csv = pd.read_json('../data/cells/val_df.json')
-        test_csv = pd.read_json('../data/cells/test_df.json')
-        # train_csv.to_csv('train_df.csv')
-        # valid_csv.to_csv('val_df.csv')
-        # test_csv.to_csv('test_df.csv')
-        return train_csv, valid_csv, test_csv
+        data = []
+        reviews = pickle.load(open(data_path, 'rb'))
+        for review in reviews:
+            (fea, adj, tem, sco, cat) = review['template']
+            data.append({'user': self.user_dict.entity2idx[review['user']],
+                         'item': self.item_dict.entity2idx[review['item']],
+                         'user_id': review['user'],
+                        'item_id': review['item'],
+                         'rating': review['rating'],
+                         'text': tem,
+                         "category": cat,
+                         'feature': self.word_dict.word2idx.get(fea, self.__unk)
+               })
+            if fea in self.word_dict.word2idx:
+                self.feature_set.add(fea)
+            else:
+                self.feature_set.add('<unk>')
+
+        train_index, valid_index, test_index = self.load_index(index_dir)
+        train, valid, test = [], [], []
+        for idx in train_index:
+            train.append(data[idx])
+        for idx in valid_index:
+            valid.append(data[idx])
+        for idx in test_index:
+            test.append(data[idx])
+        return train, valid, test
 
     def seq2ids(self, seq):
         return [self.word_dict.word2idx.get(w, self.__unk) for w in seq.split()]
 
     def load_index(self, index_dir):
+
         assert os.path.exists(index_dir)
         with open(os.path.join(index_dir, 'train.index'), 'r') as f:
             train_index = [int(x) for x in f.readline().split(' ')]
@@ -256,17 +253,24 @@ class Batchify:
         bos = word2idx['<bos>']
         eos = word2idx['<eos>']
         pad = word2idx['<pad>']
+        # for later use of generation prediction file
+        self.users = []
+        self.items = []
         u, i, r, t, f = [], [], [], [], []
-        for index,x in data.iterrows():
-            u.append(x['userId'])
-            i.append(x['itemId'])
-            r.append(x['rating'])
-            t.append(sentence_format(self.seq2ids(word2idx,x['review']), seq_len, pad, bos, eos))
-            aaa=x['userId']
-            f.append(self.seq2ids2(word2idx,user_aspect[aaa]))
-            # f.append(self.seq2ids3(word2idx, user_aspect[x['userId']][x['itemId']]))
+        for x in data:
 
-            # f.append([x['feature']])
+            self.users.append(x['user'])
+            self.items.append(x['item'])
+            u.append(x['user'])
+            i.append(x['item'])
+            r.append(x['rating'])
+            t.append(sentence_format(self.seq2ids(word2idx,x['text']), seq_len, pad, bos, eos))
+
+            # fuid: factorized user id (0 - nuser-1)
+            fuid = x['user']
+            f.append(self.list2ids(word2idx,user_aspect[fuid])) # user_factorized_id:
+
+
 
         self.user = torch.tensor(u, dtype=torch.int64).contiguous()
         self.item = torch.tensor(i, dtype=torch.int64).contiguous()
@@ -282,36 +286,39 @@ class Batchify:
 
     def seq2ids(self,word2idx, seq):
         self.__unk = word2idx['<unk>']
-        # t=seq.split()
-        # if len(t)==1:
-        #     print('1')
-        # if len(t)==0:
-        #     print('0')
         return [word2idx.get(w, self.__unk) for w in seq.split()]
 
-    def seq2ids2(self,word2idx, seq):
+
+
+    def list2ids(self,word2idx, lst):
+        """ lst: a list of strings (top 2 aspect terms)"""
+        def get_aspect_word(word2idx,word):
+            # check if the word is in the word2idx
+            if word in word2idx:
+                return word2idx[word]
+            # otherwise we try to get the word by splitting it
+            words=word.split()
+            # if the word is not splittable, we return the unk token
+            if len(words)==1:
+                return word2idx['<unk>']
+            else:
+                for w in words[::-1]: # try from the last word to the first word
+                    if w in word2idx:
+                        return word2idx[w]
+                return word2idx['<unk>']
+
         self.__unk = word2idx['<unk>']
-        t=seq.split()
-        if len(t)==1:
-            tem1=[word2idx.get(w, self.__unk) for w in seq.split()]
+        if len(lst)==1:
+            tem1=[word2idx.get(w, self.__unk) for w in lst]
             tem1=tem1[0]
             return [tem1,tem1]
-        if len(t)==0:
+        if len(lst)==0:
             return [self.__unk,self.__unk]
-        temp=[word2idx.get(w, self.__unk) for w in seq.split()]
-        return [word2idx.get(w, self.__unk) for w in seq.split()]
+        # he simply treat one aspect as one word
+        temp=[get_aspect_word(word2idx,w) for w in lst]
+        assert len(temp)==2
+        return temp
 
-    def seq2ids3(self,word2idx, seq):
-        self.__unk = word2idx['<unk>']
-        # t=seq.split()
-        if len(seq)==1:
-            tem1=[word2idx.get(w, self.__unk) for w in seq.split()]
-            tem1=tem1[0]
-            return [tem1,tem1]
-        if len(seq)==0:
-            print('0')
-        temp=[word2idx.get(w, self.__unk) for w in seq]
-        return [word2idx.get(w, self.__unk) for w in seq]
     def next_batch(self):
         if self.step == self.total_step:
             self.step = 0

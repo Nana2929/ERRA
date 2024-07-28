@@ -7,18 +7,20 @@ import numpy as np
 import argparse
 import torch.nn.functional as F
 import torch.nn as nn
-import pickle
+from pathlib import Path
 from tqdm.auto import tqdm
 from module import ERRA
+from easydict import EasyDict as edict
+import pickle
 from utils import rouge_score, bleu_score, DataLoader, Batchify, now_time, ids2tokens, unique_sentence_percent, \
     root_mean_square_error, mean_absolute_error, feature_detect, feature_matching_ratio, feature_coverage_ratio, feature_diversity
 
 
 parser = argparse.ArgumentParser(description='Explainable Recommendation with Personalized Review Retrieval and Aspect Learning (ERRA)')
-parser.add_argument('--data_path', type=str, default='./music',
-                    help='path for loading the pickle data')
-parser.add_argument('--index_dir', type=str, default='1',
-                    help='load indexes')
+parser.add_argument('--auto_arg_by_dataset', type=str, default='yelp',
+                    help='yelp, yelp23')
+parser.add_argument('--index', type=str, default='1',
+                    help='index/fold')
 parser.add_argument('--emsize', type=int, default=384,
                     help='size of embeddings')
 parser.add_argument('--nhead', type=int, default=2,
@@ -45,7 +47,7 @@ parser.add_argument('--log_interval', type=int, default=200,
                     help='report interval')
 parser.add_argument('--checkpoint', type=str, default='./peter/',
                     help='directory to save the final model')
-parser.add_argument('--outf', type=str, default='generated.txt',
+parser.add_argument('--outf', type=str, default='generated.json',
                     help='output file for generated text')
 parser.add_argument('--vocab_size', type=int, default=20000,
                     help='keep the most frequent words in the dict')
@@ -65,10 +67,18 @@ parser.add_argument('--words', type=int, default=15,
                     help='number of words to generate for each sample')
 args = parser.parse_args()
 
-if args.data_path is None:
-    parser.error('--data_path should be provided for loading data')
-if args.index_dir is None:
-    parser.error('--index_dir should be provided for loading data splits')
+if args.auto_arg_by_dataset is None:
+    parser.error('--auto_arg_by_dataset should be provided for loading data')
+# data/yelp/1/train-data
+DATA_ROOT = Path("/home/P76114511/projects/nete_format_data")
+data_path = DATA_ROOT / args.auto_arg_by_dataset / "reviews.pickle"
+index_dir = DATA_ROOT / args.auto_arg_by_dataset / args.index
+META_ROOT = Path("data")
+args = edict(vars(args))
+args.data_path = data_path
+args.index_dir = index_dir
+args.meta_root = META_ROOT / args.auto_arg_by_dataset / args.index / "train-data"
+
 
 print('-' * 40 + 'ARGUMENTS' + '-' * 40)
 for arg in vars(args):
@@ -82,49 +92,40 @@ if torch.cuda.is_available():
     if not args.cuda:
         print(now_time() + 'WARNING: You have a CUDA device, so you should probably run with --cuda')
 device = torch.device('cuda' if args.cuda else 'cpu')
-sss=now_time()
-model_dir='model/'+sss
+model_dir=Path('model') / args.auto_arg_by_dataset / args.index
+
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 model_path = os.path.join(model_dir, 'model.pt')
 prediction_path = os.path.join(model_dir, args.outf)
-
+print(now_time() + 'Model will be saved to ({})'.format(model_path))
+print(now_time() + 'Prediction will be saved to ({})'.format(prediction_path))
 ###############################################################################
 # Load data
 ###############################################################################
 
 print(now_time() + 'Loading data')
-# with open('./user_reviews_emb.pkl','rb') as f:
-#     user_emb=pickle.load(f)
-# with open('./item_reviews_emb.pkl','rb') as f:
-#     item_emb=pickle.load(f)
-# temp_u_dict={}
-# temp_u=0
-# for i in range(len(user_emb)):
-#     for j in range(len(user_emb[i])):
-#         temp_u=user_emb[i][j]+temp_u
-#     temp_u=temp_u/len(user_emb[i])
-#     temp_u_dict[i]=temp_u
-# temp_i_dict={}
-# temp_i=0
-# for i in range(len(item_emb)):
-#     for j in range(len(item_emb[i])):
-#         temp_i=item_emb[i][j]+temp_i
-#     temp_i=temp_i/len(item_emb[i])
-#     temp_i_dict[i]=temp_i
-# pd.to_pickle(temp_u_dict,'temp_u_dict.pkl')
-# pd.to_pickle(temp_i_dict,'temp_i_dict.pkl')
-# corpus = DataLoader(args.data_path, args.index_dir, args.vocab_size)
-# with open('cells_corpus.pkl', "wb") as fOut:
-#     pickle.dump(corpus, fOut)
-with open('cells_corpus.pkl','rb') as f:
-    corpus=pickle.load(f)
+
+
+# with open('cells_corpus.pkl','rb') as f:
+#     corpus=pickle.load(f)
+corpus = DataLoader(args.data_path, args.index_dir, args.vocab_size)
+
 word2idx = corpus.word_dict.word2idx
 idx2word = corpus.word_dict.idx2word
 # feature_set = corpus.feature_set
 
-user_aspect_top2=torch.load('cell_aspect_top2.pt')
-# user_aspect_top2=pd.read_pickle('yelp_aspect_retrive_top2.pkl')
+# !!original
+# user_aspect_top2=torch.load('cell_aspect_top2.pt')
+
+
+# so many typos = = what tf is glabos...
+user_retrive_global=torch.load(args.meta_root / "user_glabos_retrive.pt")
+item_retrive_global=torch.load(args.meta_root / "item_glabos_retrive.pt")
+
+with open(args.meta_root / "user_aspect_top2.pickle", "rb") as f:
+    user_aspect_top2 = pickle.load(f)
+
 train_data = Batchify(corpus.train, word2idx, args.words, args.batch_size, shuffle=True,user_aspect=user_aspect_top2)
 val_data = Batchify(corpus.valid, word2idx, args.words, args.batch_size,user_aspect=user_aspect_top2)
 test_data = Batchify(corpus.test, word2idx, args.words, args.batch_size,user_aspect=user_aspect_top2)
@@ -180,6 +181,12 @@ def train(data,user_retrive_global,item_retrive_global):
         rating = rating.to(device)
         seq = seq.t().to(device)  # (tgt_len + 1, batch_size)
         aspect = aspect.t().to(device)  # (1, batch_size)
+        # put retrieved global embeddings into the device
+        user_retrive_global = user_retrive_global.to(device)  # (nuser, emsize)
+        item_retrive_global = item_retrive_global.to(device)  # (nitem, emsize)
+        # print('user ret embeddings global  shape: ', user_retrive_global.shape)
+        # print('item ret embeddings global  shape: ', item_retrive_global.shape)
+
         if args.use_feature:
             text = torch.cat([aspect, seq[:-1]], 0)  # (src_len + tgt_len - 2, batch_size)
         else:
@@ -188,7 +195,9 @@ def train(data,user_retrive_global,item_retrive_global):
         # If we didn't, the model would try backpropagating all the way to start of the dataset.
         optimizer.zero_grad()
         log_word_prob, \
-        log_context_dis, rating_p, _ = model(user, item, text,user_retrive_global=user_retrive_global,item_retrive_global=item_retrive_global)  # (tgt_len, batch_size, ntoken) vs. (batch_size, ntoken) vs. (batch_size,)
+        log_context_dis, rating_p, _ = model(user, item, text,
+        user_retrive_global=user_retrive_global,
+        item_retrive_global=item_retrive_global)  # (tgt_len, batch_size, ntoken) vs. (batch_size, ntoken) vs. (batch_size,)
         context_dis = log_context_dis.unsqueeze(0).repeat((tgt_len - 1, 1, 1))  # (batch_size, ntoken) -> (tgt_len - 1, batch_size, ntoken)
         c_loss = text_criterion(context_dis.view(-1, ntokens), seq[1:-1].reshape((-1,)))
         r_loss = rating_criterion(rating_p, rating)
@@ -256,14 +265,20 @@ def evaluate(data,user_retrive_global,item_retrive_global):
     return context_loss / total_sample, text_loss / total_sample, rating_loss / total_sample
 
 
-def generate(data,user_retrive_global,item_retrive_global):
+def generate(data: Batchify,user_retrive_global: torch.tensor,item_retrive_global:torch.tensor):
     # Turn on evaluation mode which disables dropout.
     model.eval()
     idss_predict = []
     context_predict = []
     rating_predict = []
+    users = []
+    items = []
+    users.extend(data.users)
+    items.extend(data.items)
+
     with torch.no_grad():
         while True:
+
             user, item, rating, seq ,aspect= data.next_batch()
             user = user.to(device)  # (batch_size,)
             item = item.to(device)
@@ -319,22 +334,27 @@ def generate(data,user_retrive_global,item_retrive_global):
     text_test = [' '.join(tokens) for tokens in tokens_test]
     text_predict = [' '.join(tokens) for tokens in tokens_predict]
     tokens_context = [' '.join([idx2word[i] for i in ids]) for ids in context_predict]
+    user_ids = [corpus.user_dict.idx2entity[i] for i in users]
+    item_ids = [corpus.item_dict.idx2entity[i] for i in items]
     ROUGE = rouge_score(text_test, text_predict)  # a dictionary
     for (k, v) in ROUGE.items():
         print(now_time() + '{} {:7.4f}'.format(k, v))
-    text_out = ''
-    for (real, ctx, fake) in zip(text_test, tokens_context, text_predict):
-        text_out += '{}\n{}\n{}\n\n'.format(real, ctx, fake)
-    return text_out
+    # text_out = ''
+    # for (real, ctx, fake) in zip(text_test, tokens_context, text_predict):
+    #     text_out += '{}\n{}\n{}\n\n'.format(real, ctx, fake)
+    print(now_time() + 'text_test length: {}'.format(len(text_test)))
+    print(now_time() + 'tokens_context length: {}'.format(len(tokens_context)))
+    print(now_time() + 'text_predict length: {}'.format(len(text_predict)))
+    print(now_time() + 'user_ids length: {}'.format(len(user_ids)))
+    print(now_time() + 'item_ids length: {}'.format(len(item_ids)))
+
+    return text_test, tokens_context, text_predict, user_ids, item_ids
 
 
 # Loop over epochs.
 best_val_loss = float('inf')
 endure_count = 0
-# user_retrive=torch.load('../data/TripAdvisor/retrive_result/user_revemb_By_item_retrive.pt')
-# item_retrive=torch.load('../data/TripAdvisor/retrive_result/item_revemb_By_user_retrive.pt')
-user_retrive_global=torch.load('../data/cells/retrive_result/user_glabos_retrive.pt')
-item_retrive_global=torch.load('../data/cells/retrive_result/item_glabos_retrive.pt')
+
 for epoch in range(1, args.epochs + 1):
     print(now_time() + 'epoch {}'.format(epoch))
     train(train_data,user_retrive_global,item_retrive_global)
@@ -374,7 +394,20 @@ with open(model_path, 'rb') as f:
 #     math.exp(test_c_loss), math.exp(test_t_loss), test_r_loss))
 
 print(now_time() + 'Generating text')
-text_o = generate(test_data,user_retrive_global,item_retrive_global)
-with open(prediction_path, 'w', encoding='utf-8') as f:
-    f.write(text_o)
+reals, ctxs, fakes, uids, iids = generate(test_data,user_retrive_global,item_retrive_global)
+import pandas as pd
+df = pd.DataFrame(
+        {
+            "user_id": uids,
+            "item_id": iids,
+            "real": reals,
+            "fake": fakes,
+            "context": ctxs,
+            # "user_retrieve": user_retrive_global,
+            # "item_retrieve": item_retrive_global
+        }
+    )
+# print first line of the dataframe
+print(df.head())
+df.to_json(prediction_path, orient='records', lines=True)
 print(now_time() + 'Generated text saved to ({})'.format(prediction_path))
