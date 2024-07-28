@@ -1,0 +1,32 @@
+----------------------------------------ARGUMENTS----------------------------------------
+auto_arg_by_dataset                      yelp
+index                                    5
+emsize                                   384
+nhead                                    2
+nhid                                     2048
+nlayers                                  6
+dropout                                  0.2
+lr                                       1.0
+clip                                     1.0
+epochs                                   200
+batch_size                               256
+seed                                     2022
+cuda                                     True
+log_interval                             200
+checkpoint                               ./yelp/5
+outf                                     generated.json
+vocab_size                               20000
+endure_times                             5
+rating_reg                               0.2
+context_reg                              1.0
+text_reg                                 1.0
+peter_mask                               True
+use_feature                              True
+words                                    15
+data_path                                /home/P76114511/projects/nete_format_data/yelp/reviews.pickle
+index_dir                                /home/P76114511/projects/nete_format_data/yelp/5
+meta_root                                data/yelp/5/train-data
+----------------------------------------ARGUMENTS----------------------------------------
+[2024-07-28 11:47:24.017791]: Model will be saved to (model/yelp/5/model.pt)
+[2024-07-28 11:47:24.017996]: Prediction will be saved to (model/yelp/5/generated.json)
+[2024-07-28 11:47:24.018007]: Loading data
