@@ -1,8 +1,8 @@
 export CUDA_VISIBLE_DEVICES=0
 DATA_ROOT="./nete_format_data"
-DATASET="yelp"
+DATASET="yelp23"
 
-for index in 1 2;do
+for index in 1 2 3 4 5;do
     logpath="log/${DATASET}/${index}/run.log"
     # make dir
     mkdir -p log/${DATASET}/${index}

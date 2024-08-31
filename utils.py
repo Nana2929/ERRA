@@ -165,6 +165,9 @@ class EntityDictionary:
     def __len__(self):
         return len(self.idx2entity)
 
+# select longest aspect
+select_longest = lambda triplets: max(triplets, key=lambda trip: len(trip[0]))
+
 
 class DataLoader:
     def __init__(self, data_path, index_dir, vocab_size):
@@ -200,7 +203,9 @@ class DataLoader:
         data = []
         reviews = pickle.load(open(data_path, 'rb'))
         for review in reviews:
-            (fea, adj, tem, sco, cat) = review['template']
+            # (fea, adj, tem, sco, cat) = review['template']
+            fea, adj, tem, sco, cat = select_longest(review['triplets'])
+            # !!GET the longest!!
             data.append({'user': self.user_dict.entity2idx[review['user']],
                          'item': self.item_dict.entity2idx[review['item']],
                          'user_id': review['user'],

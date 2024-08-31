@@ -315,7 +315,11 @@ class ERRA(nn.Module):
         log_word_prob = func.log_softmax(word_prob, dim=-1)
         return log_word_prob
 
-    def forward(self, user, item, text, seq_prediction=True, context_prediction=True, rating_prediction=True,user_retrive=None,item_retrive=None,user_retrive_global=None,item_retrive_global=None):
+    def forward(self, user, item, text, seq_prediction=True, context_prediction=True, rating_prediction=True,
+    user_retrive=None,
+    item_retrive=None,
+    user_retrive_global=None,
+    item_retrive_global=None):
         '''
         :param user: (batch_size,), torch.int64
         :param item: (batch_size,), torch.int64
@@ -339,8 +343,15 @@ class ERRA(nn.Module):
         u_src = self.user_embeddings(user)  # (1, batch_size, emsize)
         i_src = self.item_embeddings(item)  # (1, batch_size, emsize)
         w_src = self.word_embeddings(text)  # (total_len - ui_len, batch_size, emsize)
-        user_retrive_glo = user_retrive_global[user].to(device)
-        item_retrive_glo = item_retrive_global[item].to(device)
+
+
+        if user_retrive_global.device != device:
+            _user=user.cpu(); _item=item.cpu()
+            user_retrive_glo = user_retrive_global[_user].to(device)
+            item_retrive_glo = item_retrive_global[_item].to(device)
+        else:
+            user_retrive_glo = user_retrive_global[user].to(device)
+            item_retrive_glo = item_retrive_global[item].to(device)
         # uuu=[]
         # iii=[]
         # for i in range(batch_size):
